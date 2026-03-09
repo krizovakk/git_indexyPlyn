@@ -14,6 +14,14 @@ output:
 
 # ICIS HEREN - all in one
 
+REQ:
+  - aktualni CSV soubory musi byt stazene v "X:/ICIS_Heren/
+  
+FUNC:
+  - tato sekce kodu zkopiruje soubor indexyPlyn_AKTUALNI.xlsx do slozky R_indexHarvest, kde budou probihat upravy
+  - CSV se nakopiruji do R_indexHarvest/csv_oper
+  - probehne sklizeni vsech CSV souboru a zapis do indexyPlyn_AKTUALNI.xlsx na listy ICIS a ICIS komplet
+
 ```{r}
 
 
@@ -27,15 +35,10 @@ require(stringr)
 require(writexl)
 require(readxl)
 
-
 # paths
-path_in <- "C:/Users/krizova/Documents/R/01 indexyPlyn/csv_oper/"
-path_bu <- "C:/Users/krizova/Documents/R/01 indexyPlyn/d-1_backup/"
-path_out <- "C:/Users/krizova/Documents/R/01 indexyPlyn/"
-
-# development
-# path_in <- "C:/Users/krizova/Documents/R/playground/indexyPlyn/"
-# path_out <- "C:/Users/krizova/Documents/R/playground/indexyPlyn/"
+path_in <- "X:/Nakup _ NEW/Indexy_Plyn/R_indexHarvest/csv_oper/" 
+path_bu <- "X:/Nakup _ NEW/Indexy_Plyn/R_indexHarvest/d-1_backup/"
+path_out <- "X:/Nakup _ NEW/Indexy_Plyn/R_indexHarvest/"
 
 # set local
 Sys.setlocale("LC_TIME", "C")
@@ -56,6 +59,7 @@ append_to_excel <- function(df, file_path, sheet) {
   )
   saveWorkbook(wb, file = file_path, overwrite = TRUE)  # Save workbook
 }
+
 
 # ------------------------------------- copy excel from X to local
 
@@ -209,7 +213,18 @@ print("Dnesni davka indexu zapsana do lokalu.")
 ```
 
 
-# F I N A L  SAVE AND BACKUP
+# FINAL SAVE AND BACKUP
+
+REQ:
+  - zapis aktualnich indexu do R_indexHarvest/indexyPlyn_AKTUALNI.xlsx probehl uspesne
+  - problehla kontrola uspesnosti zapisu dat
+  
+FUNC:
+  - excel se kopiruje zpet do slozky Indexy_Plyn
+  - zaroven se vytvori zaloha v R_indexHarvest/d-1_backup
+  
+*WARN!:*
+  *- v pondeli se tato uloha spousti az po zapsani tydenni davky indexu z EEX*
 
 
 ```{r}
@@ -238,7 +253,12 @@ print("Dnesni davka indexu zapsana na Xko.")
 
 ## ICIS - Mid
 
-- done
+REQ:
+  - zapis aktualnich indexu do R_indexHarvest/indexyPlyn_AKTUALNI.xlsx probehl uspesne
+  - problehla kontrola uspesnosti zapisu dat
+
+FUNC:
+  - aktualizuje graf vyvoje cen DA za posledni tri mesice a *vymaze vsechny docasne soubory z Environment*
 
 ```{r}
 
@@ -254,9 +274,9 @@ require(ggplot2)
 
 # paths
 
-path_in <- "C:/Users/krizova/Documents/R/01 indexyPlyn/csv_oper/"
-path_bu <- "C:/Users/krizova/Documents/R/01 indexyPlyn/d-1_backup/"
-path_out <- "C:/Users/krizova/Documents/R/01 indexyPlyn/"
+path_in <- "X:/Nakup _ NEW/Indexy_Plyn/R_indexHarvest/csv_oper/" 
+path_bu <- "X:/Nakup _ NEW/Indexy_Plyn/R_indexHarvest/d-1_backup/"
+path_out <- "X:/Nakup _ NEW/Indexy_Plyn/R_indexHarvest/"
 
 Sys.setlocale("LC_TIME", "C")  # or "en_US.UTF-8" on some systems
 
@@ -355,10 +375,21 @@ https://www.eex.com/en/market-data/market-data-hub
 
 ### eod @ LOOP
 
-NG -> SPOT -> CZVTP -> DA
-
--- idea:
-  prekliknout "market" a projet trikrat s ruznou verzi clipboardu
+REQ:
+  - na strankach EEX pracujeme s nasledujicimi sekcemi
+    - NG -> SPOT -> CZVTP -> DA
+    - NG -> SPOT -> THE -> DA
+    - NG -> SPOT -> TTF -> DA
+  - v rozsahu datumu zvolit minuly tyden
+  - na tabulku klikneme PM -> Prozkoumat (otevre zdrojovy kod) -> o par radku vys  <body>, na ktere klikneme PM -> Upravit HTML -> zkopirovat cely text do clipboardu -> spustit od
+  - projet trikrat vzdy pro kazdy trh (treba odkomentovat a zase zakomentovat "market")
+  
+FUNC:
+  - vytvori tri samostatne dataframe, pro kazdy trh jeden 
+  
+*WARN!:*
+  *- WE hodnoty se nevyplnuji, je treba je doplnit do excelu po skonceni cele teto R akce rucne.*
+  *- najdeme zde: - NG -> SPOT -> CZVTP -> WE*
 
 ```{r}
 
@@ -395,19 +426,19 @@ assign(market, df)
 
 ```
 
-```{r}
-# date_min <- min(df$del_date)
-# date_max <- max(df$del_date)
-# date_min <- min(eod_the$del_date)
-# date_max <- max(eod_the$del_date)
-```
-
 ### egsi @ LOOP
 
-NG -> Indices -> CZVTP -> EGSI
-
--- idea:
-  prekliknout "market" a projet trikrat s ruznou verzi clipboardu
+REQ:
+  - na strankach EEX pracujeme s nasledujicimi sekcemi
+    - NG -> Indices -> CZVTP -> EGSI
+    - NG -> Indices -> THE -> EGSI
+    - NG -> Indices -> TTF -> EGSI
+  - v rozsahu datumu zvolit minuly tyden
+  - na tabulku klikneme PM -> Prozkoumat (otevre zdrojovy kod) -> o par radku vys  <body>, na ktere klikneme PM -> Upravit HTML -> zkopirovat cely text do clipboardu -> spustit od
+  - projet trikrat vzdy pro kazdy trh (treba odkomentovat a zase zakomentovat "market")
+  
+FUNC:
+  - vytvori tri samostatne dataframe, pro kazdy trh jeden 
 
 ```{r}
 
@@ -444,6 +475,19 @@ assign(market, df)
 
 #### cbind a save
 
+REQ:
+  - Environment obsahuje 6 dataframes
+    - eod_vtp
+    - eod_the
+    - eod_ttf
+    - egsi_vtp
+    - egsi_the
+    - egsi_ttf
+  *- v poslednim radku je treba nastavit spravne datum*
+  
+FUNC:
+  - zapise EoD a EGSI do excelu na list EEX (treba odkomentovat a zase zakomentovat)
+
 ```{r}
 eex <- egsi_ttf %>% 
   left_join(egsi_the, by = "del_date") %>% 
@@ -454,23 +498,23 @@ eex <- egsi_ttf %>%
   filter(del_date > "2026-02-23") # --------------------------- uprav - minule pondeli
 
 # EOD a EGSI
-# append_to_excel(eex, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "EEX")
+# append_to_excel(eex, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "EEX") # uncomment to append
 
 ```
 
 ### futures
 
--- idea:
-  source kody nakopirovat do textaku a pak teprve nacist 
-  idealne za cely tyden
+REQ:
+  - naplneny operacni textak R_indexHarvest/oper_EEXfutures.txt
+  - veta by mela obsahovat zdrojovy kod pro tyto sekce:
+      VTP Cal+1 -> VTP Q+1 -> VTP M+1 -> 
+      THE Cal+1 -> THE Q+1 -> THE M+1 -> 
+      TTF Cal+1 -> TTF Q+1 -> TTF M+1
+  - trading day == minule pondeli
+  
+FUNC:
+  - zpracuje txt do tabulky se vsemi futures -> zkontrolovat
 
--- zadavat Trading day == minule pondeli
-
--- poradi:
-
-VTP Cal+1 -> VTP Q+1 -> VTP M+1 -> 
-THE Cal+1 -> THE Q+1 -> THE M+1 -> 
-TTF Cal+1 -> TTF Q+1 -> TTF M+1
   
 ```{r}
 
@@ -500,6 +544,12 @@ futu <- df %>%
 
 ## cbind a save do excelu
 
+REQ:
+  - zkontrolovany dataframe futu
+  
+FUNC:
+  - zapise do excelu na list EEX_futures
+  
 ```{r}
 
 # FUTURES
@@ -509,5 +559,7 @@ append_to_excel(futu, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "EEX
 
 ```
 
-
+*TO DO*
+  - po zapsani EEX futures - zkontrolovat excel
+  - prejit do sekce FINAL SAVE AND BACKUP a projet vytvoreni zalohy a zkopirovani excelu do Indexy_Plyn
 
