@@ -1,0 +1,513 @@
+---
+title: "Indexy plyn - ICIS Heren a EEX"
+author: "Katerina Krizova"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    fig_caption: true
+  fontsize: 11pt
+  geometry: margin=1in
+---
+
+# ICIS HEREN - all in one
+
+```{r}
+
+
+# ------------------------------------- packages, paths, setup
+
+
+# packages
+require(tidyverse)
+require(openxlsx)
+require(stringr)
+require(writexl)
+require(readxl)
+
+
+# paths
+path_in <- "C:/Users/krizova/Documents/R/01 indexyPlyn/csv_oper/"
+path_bu <- "C:/Users/krizova/Documents/R/01 indexyPlyn/d-1_backup/"
+path_out <- "C:/Users/krizova/Documents/R/01 indexyPlyn/"
+
+# development
+# path_in <- "C:/Users/krizova/Documents/R/playground/indexyPlyn/"
+# path_out <- "C:/Users/krizova/Documents/R/playground/indexyPlyn/"
+
+# set local
+Sys.setlocale("LC_TIME", "C")
+
+# function
+append_to_excel <- function(df, file_path, sheet) {
+  library(openxlsx)
+  wb <- loadWorkbook(file_path)  # Load existing workbook and read data from target sheet
+  existing_data <- read.xlsx(wb, sheet = sheet) 
+  next_row <- nrow(existing_data) + 2  # Calculate next empty row (account for header)
+  writeData(  # Append new data to that row
+    wb, 
+    sheet = sheet, 
+    x = df, 
+    startRow = next_row, 
+    colNames = FALSE,      # Don't write column names again
+    na.string = ""
+  )
+  saveWorkbook(wb, file = file_path, overwrite = TRUE)  # Save workbook
+}
+
+# ------------------------------------- copy excel from X to local
+
+
+file.copy(from = "X:/Nakup _ NEW/Indexy_Plyn/indexyPlyn_AKTUALNI.xlsx",
+          to = paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"),
+          overwrite = TRUE)
+
+
+# ------------------------------------- copy files from X to csv_oper
+
+
+Ltrh <- c("TTF", "THE", "VTP")
+for (i in Ltrh) {
+  files <- list.files("X:/ICIS_Heren/", pattern = paste0(i, ".csv"), full.names = T)
+  if (length(files) > 0) {
+    info <- file.info(files)
+    newest_file <- rownames(info)[which.max(info$mtime)]
+    file.copy(from = newest_file,
+          to = path_in)
+  }
+}
+
+rm(info)
+
+
+# ------------------------------------- read reports and process
+
+
+Ltrh <- c("TTF", "THE", "VTP")
+
+for (i in Ltrh) {
+  files <- list.files(path_in, pattern = paste0(i, ".csv"), full.names = T) 
+  if (length(files) > 0) {
+    info <- file.info(files)
+    newest_file <- rownames(info)[which.max(info$mtime)]
+    df <- read.csv(newest_file, header = TRUE, sep = ",") %>% 
+      filter(str_detect(Name, "^Natural Gas")) %>% 
+      # mutate(publ = as.Date(Date, format = "%d %b %Y"), # zmena formatu csv 13.1.2026
+      mutate(publ = as.Date(Published, format = "%d %b %Y"),
+             weekday = weekdays(publ),
+             Den = case_when(weekday == "Monday" ~ "po",
+                             weekday == "Tuesday" ~ "ut",
+                             weekday == "Wednesday" ~ "st",
+                             weekday == "Thursday" ~ "ct",
+                             weekday == "Friday" ~ "pa",
+                             weekday == "Saturday" ~ "so",
+                             weekday == "Sunday" ~ "ne"),
+             Indicator = str_remove(Name, " TTF| THE| Czech Republic"),
+             deli = case_when(Den == "pa" & Indicator == "Natural Gas Day-ahead" ~ publ  + 3, 
+                              Den == "pa" & Indicator == "Natural Gas Weekend+0" ~ publ  + 1,
+                              TRUE ~ publ + 1),
+             deli_day = case_when(Den == "pa" & Indicator == "Natural Gas Day-ahead" ~ "po", 
+                                  Den == "po" & Indicator == "Natural Gas Day-ahead" ~ "ut",
+                                  Den == "ut" & Indicator == "Natural Gas Day-ahead" ~ "st",
+                                  Den == "st" & Indicator == "Natural Gas Day-ahead" ~ "ct",
+                                  Den == "ct" & Indicator == "Natural Gas Day-ahead" ~ "pa",
+                                  Den == "pa" & Indicator == "Natural Gas Weekend+0" ~ "so+ne",
+                                  TRUE ~ NA))
+    print(newest_file)
+    rm(info)
+    rm(newest_file)
+  } else {
+    warning("Not the robots you're looking for.")
+  }
+  if (i == "TTF"){
+    df <- df %>% select("Publication day" = Den, publ, deli, "Delivery day" = deli_day, Indicator, Period, "TTF Bid" = Bid, "TTF Offer" = Offer, "TTF Mid" = Mid.Price)
+    assign("ttf", df)
+  } else if (i == "THE"){
+    df <- df %>% select(Indicator, "THE Bid" = Bid, "THE Offer" = Offer, "THE Mid" = Mid.Price) 
+    assign("the", df)
+  } else if (i == "VTP"){
+    df <- df %>% select(Indicator, "CZ-VTP Bid" = Bid, "CZ-VTP Offer" = Offer, "CZ-VTP Mid" = Mid.Price) 
+    assign("vtp", df)
+  } else {
+    warning("I have a bad feeling about this.")
+  }
+  rm(df)
+  rm(i)
+  rm(files)
+} 
+
+cons <- left_join(ttf, the, by = "Indicator") %>%
+  left_join(vtp, by = "Indicator") %>%
+  mutate(across(c('TTF Bid', 'TTF Offer', 'TTF Mid',
+                  'THE Bid', 'THE Offer', 'THE Mid',
+                  'CZ-VTP Bid', 'CZ-VTP Offer', 'CZ-VTP Mid'), as.numeric)) %>% 
+   mutate(across(where(is.character), ~ replace(., is.na(.), "")))
+
+
+# ------------------------------------- result 1: DA, WE, MA
+
+
+da <- cons %>% 
+  filter(ifelse(`Publication day` == "pa", Indicator %in% c("Natural Gas Weekend+0", "Natural Gas Day-ahead"), Indicator == "Natural Gas Day-ahead")) %>% 
+  filter(str_detect(Indicator, "^Natural"))
+names(da) <- ifelse(grepl("Bid|Offer|Mid", names(da)), paste0("(d) ", names(da)), names(da))
+
+mo <- cons %>% 
+  filter(str_detect(Indicator, "Natural Gas Month.1")) %>%  # z nejakeho duvodu chce cely nazev. regex nefunguje
+  select(-'Publication day', -deli, -publ, -'Delivery day')
+names(mo) <- ifelse(grepl("Indicator|Period|Bid|Offer|Mid", names(mo)), paste0("(m) ", names(mo)), names(mo))
+
+lines <- cbind(da, mo) 
+day <- unique(lines$`Publication day`)
+
+if (day == "pa"){
+  lines <- rbind(lines, lines[rep(2, 1), ])
+  # lines$deli[lines$Indicator == "Natural Gas Day-ahead"] <- lines$publ+3
+  lines$deli[nrow(lines)] <- lines$publ+2
+  lines <- lines[order(lines$deli), ]
+} else{
+  lines$deli <- lines$publ+1
+}
+
+dawemo <- lines %>% 
+  mutate('Publication date' = format(publ, "%d.%m.%Y"),
+         'Delivery date' = format(deli, "%d.%m.%Y")) %>% 
+  select(-publ, -deli) %>% 
+  relocate('Publication date', 'Delivery date', .after = `Publication day`)
+
+dawemo$`Publication date` <- as.Date(dawemo$`Publication date`, format = "%d.%m.%Y")
+dawemo$`Delivery date` <- as.Date(dawemo$`Delivery date`, format = "%d.%m.%Y")
+
+# vymazat vikend pro MA !
+blank <- c("(m) TTF Bid", "(m) TTF Offer", "(m) TTF Mid", "(m) THE Bid", "(m) THE Offer", "(m) THE Mid", "(m) CZ-VTP Bid","(m) CZ-VTP Offer", "(m) CZ-VTP Mid")
+dawemo[2:3, blank] <- ""
+dawemo[blank] <- sapply(dawemo[blank],as.numeric)
+
+rm(lines)
+
+# append
+append_to_excel(dawemo, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "ICIS")
+
+
+# ------------------------------------- result 2: full ICIS report
+
+
+icis <- cons %>% 
+ mutate(`THE/TTF` = `THE Mid`-`TTF Mid`,
+         `CZ-VTP/TTF` = `CZ-VTP Mid`-`TTF Mid`,
+         `CZ-VTP/THE` = `CZ-VTP Mid`-`THE Mid`,
+         `Publication date` = format(publ, "%d.%m.%Y"),
+         `Delivery date` = ifelse(str_detect(Indicator, "Day-ahead"), format(deli, "%d.%m.%Y"), "")) %>% 
+  select(-publ, -deli) %>% 
+  relocate(`Publication date`, `Delivery date`, .after = `Publication day`)
+
+append_to_excel(icis, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "ICIS komplet")
+
+print("Dnesni davka indexu zapsana do lokalu.")
+```
+
+
+# F I N A L  SAVE AND BACKUP
+
+
+```{r}
+# DELETE OPER CSV ==============================================================
+
+unlink(paste0(path_in, "*"), recursive = FALSE) # smaze vsechny excely v path_in !!!
+
+# PERSONAL BACKUP COPY =================== uncomment ===========================
+
+file.copy(from = paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"),
+          to = path_bu,
+          overwrite = TRUE)
+
+file.copy(from = paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"),
+          to = "X:/Nakup _ NEW/Indexy_Plyn/indexyPlyn_AKTUALNI.xlsx",
+          overwrite = TRUE)
+
+print("Dnesni davka indexu zapsana na Xko.")
+
+# CLEAR ENVIRONMENT ============================================================
+
+# rm(list=ls())
+```
+
+# PLOTS
+
+## ICIS - Mid
+
+- done
+
+```{r}
+
+# packages
+
+require(tidyverse)
+require(openxlsx)
+require(stringr)
+require(writexl)
+require(readxl)
+require(lubridate)
+require(ggplot2)
+
+# paths
+
+path_in <- "C:/Users/krizova/Documents/R/01 indexyPlyn/csv_oper/"
+path_bu <- "C:/Users/krizova/Documents/R/01 indexyPlyn/d-1_backup/"
+path_out <- "C:/Users/krizova/Documents/R/01 indexyPlyn/"
+
+Sys.setlocale("LC_TIME", "C")  # or "en_US.UTF-8" on some systems
+
+# data
+
+icis <- read_excel(paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "ICIS")
+
+date <- icis %>%
+  mutate(
+    `Publication date` = case_when(
+      grepl("^[0-9]+$", `Publication date`) ~ as.Date(as.numeric(`Publication date`), origin = "1899-12-30"),
+      TRUE ~ as.Date(`Publication date`, format = "%d.%m.%Y")
+    ),
+    `Delivery date` = case_when(
+      grepl("^[0-9]+$", `Delivery date`) ~ as.Date(as.numeric(`Delivery date`), origin = "1899-12-30"),
+      TRUE ~ as.Date(`Delivery date`, format = "%d.%m.%Y")),
+    proj_date = `Delivery date`-1 # projected date
+  ) %>% filter(!is.na(Period))
+
+# mid values in long format
+
+mid <- date %>% 
+  select("Date" = proj_date, "TTF" = `(d) TTF Mid`, "THE" = `(d) THE Mid`, "CZ-VTP" = `(d) CZ-VTP Mid`) %>% 
+  pivot_longer(cols = -Date, names_to = "series", values_to = "value") %>% 
+  
+  filter(Date >= (Sys.Date() %m-% months(2))) # -------------------------------- set the time range here
+
+# min and max for each of the markets 
+
+extrema <- mid %>%
+  group_by(series) %>%
+  filter(value == min(value) | value == max(value))
+
+# min and max for the whole dataset to set y scale automatically
+
+y_limits <- mid %>%
+  summarise(min_val = min(value, na.rm = TRUE),
+            max_val = max(value, na.rm = TRUE)) %>%
+  mutate(min_limit = min_val - 1, max_limit = max_val + 1)
+
+# plot
+
+g_mid <- ggplot(mid, aes(x = Date, y = value, color = series)) + 
+  geom_line(linewidth = 1)+
+  geom_point(data = extrema, aes(fill = series), shape = 21, size = 3) +
+   geom_text(
+    data = extrema,
+    aes(label = round(value, 1)), 
+    nudge_y = 0.15, size = 5,
+    show.legend = FALSE) +
+  scale_color_manual(values = c(
+      "TTF" = "gold",
+      "THE" = "indianred3",
+      # "THE" = "olivedrab",
+      "CZ-VTP" = "deepskyblue3"))+
+      # "CZ-VTP" = "lightseagreen"))+
+  scale_fill_manual(values = c(
+      "TTF" = "gold",
+      "THE" = "indianred3",
+      # "THE" = "olivedrab",
+      "CZ-VTP" = "deepskyblue3"))+
+      # "CZ-VTP" = "lightseagreen"))+
+  labs(x = "Delivery date - 1 day", y = "€ / MWh", title = "Natural Gas Prices :: Day-Ahead", colour = "", fill = "") +
+  scale_x_date(
+    breaks = "1 day", # ------------------------------------------------------- muzes upravit
+    date_labels = "%d-%b-%y",
+    minor_breaks = NULL, 
+    expand = c(0.05, 0.05))+
+  scale_y_continuous(
+    limits = c(y_limits$min_limit, y_limits$max_limit),
+    breaks = seq(floor(y_limits$min_limit), ceiling(y_limits$max_limit), by = 0.5))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1), legend.position = "top")
+
+require(plotly)
+library(htmlwidgets)
+
+a <- ggplotly(g_mid)
+saveWidget(a, file = "X:/Nakup _ NEW/Indexy_Plyn/grafy_vyvojCen_locationSpready/Mid_TTF_THE_CZVTP_last2months.html")
+
+# CLEAR ENVIRONMENT
+
+rm(list=ls())
+
+print("Graf vyvoje DA aktualizovan.")
+
+```
+
+# ----------------- monday bussines
+
+# EEX 
+
+## source indexu
+
+https://www.eex.com/en/market-data/market-data-hub
+
+### eod @ LOOP
+
+NG -> SPOT -> CZVTP -> DA
+
+-- idea:
+  prekliknout "market" a projet trikrat s ruznou verzi clipboardu
+
+```{r}
+
+# market <- "eod_vtp"
+# market <- "eod_the"
+# market <- "eod_ttf"
+
+# read from clipboard
+text <- paste(readClipboard(), collapse = "\n")
+# print(text)
+
+# Extract all <td> values
+values <- str_match_all(text, "<td>(.*?)</td>")[[1]][,2]
+
+# Reshape into 4-column table
+df <- data.frame(matrix(values, ncol = 4, byrow = TRUE))
+names(df) <- c("pub_date", "del_date", "volume", "price")
+
+# Clean numbers
+df <- df %>%
+  mutate(
+    pub_date = as.Date(pub_date),
+    del_date = as.Date(del_date),
+    volume   = as.numeric(gsub(",", "", volume)),
+    price    = as.numeric(price)
+  ) %>% 
+  select(del_date, price) %>% 
+  rename(!!market := price) %>% 
+  na.omit() %>% 
+  arrange(del_date)
+
+assign(market, df)
+
+
+```
+
+```{r}
+# date_min <- min(df$del_date)
+# date_max <- max(df$del_date)
+# date_min <- min(eod_the$del_date)
+# date_max <- max(eod_the$del_date)
+```
+
+### egsi @ LOOP
+
+NG -> Indices -> CZVTP -> EGSI
+
+-- idea:
+  prekliknout "market" a projet trikrat s ruznou verzi clipboardu
+
+```{r}
+
+# market <- "egsi_vtp"
+# market <- "egsi_the"
+# market <- "egsi_ttf"
+
+# read from clipboard
+text <- paste(readClipboard(), collapse = "\n")
+# print(text)
+
+# Extract all <td> values
+values <- str_match_all(text, "<td>(.*?)</td>")[[1]][,2]
+
+# Reshape into 4-column table
+df <- data.frame(matrix(values, ncol = 3, byrow = TRUE))
+names(df) <- c("trad_date", "del_date", "price")
+
+# Clean numbers
+df <- df %>%
+  mutate(
+    trad_date = as.Date(trad_date),
+    del_date = as.Date(del_date),
+    price    = as.numeric(price)
+  ) %>% 
+  select(del_date, price) %>% 
+  rename(!!market := price) %>% 
+  arrange(del_date)
+  # filter(del_date>=date_min & del_date<=date_max) # filtr tydne
+
+assign(market, df)
+
+```
+
+#### cbind a save
+
+```{r}
+eex <- egsi_ttf %>% 
+  left_join(egsi_the, by = "del_date") %>% 
+  left_join(egsi_vtp, by = "del_date") %>% 
+  left_join(eod_ttf, by = "del_date") %>% 
+  left_join(eod_the, by = "del_date") %>% 
+  left_join(eod_vtp, by = "del_date") %>% 
+  filter(del_date > "2026-02-23") # --------------------------- uprav - minule pondeli
+
+# EOD a EGSI
+# append_to_excel(eex, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "EEX")
+
+```
+
+### futures
+
+-- idea:
+  source kody nakopirovat do textaku a pak teprve nacist 
+  idealne za cely tyden
+
+-- zadavat Trading day == minule pondeli
+
+-- poradi:
+
+VTP Cal+1 -> VTP Q+1 -> VTP M+1 -> 
+THE Cal+1 -> THE Q+1 -> THE M+1 -> 
+TTF Cal+1 -> TTF Q+1 -> TTF M+1
+  
+```{r}
+
+text <- readLines(paste0(path_out, "oper_EEXfutures.txt")) # warning is fine, warn = FALSE
+text <- paste(text, collapse = "") # vymaze pripadne mezery v HTML
+
+values <- str_match_all(text, "<td>(.*?)</td>")[[1]][,2]
+
+df <- data.frame(matrix(values, ncol = 4, byrow = TRUE)) # reshape into 4-column table
+
+days <- 5 # enter for how many days you do the processing
+
+df$market <- rep(c("VTP", "THE", "TTF"), each = 3 * days) # days * futures (3 = cal, quater, month) 
+df$maturity <- rep(c("Cal+1", "Q+1", "M+1"), each = days, times = 3)
+df$product <- paste(df$market, df$maturity)
+df$price <- as.numeric(df$X4)
+
+futu <- df %>% 
+  mutate(trad_date = as.Date(X1)) %>% 
+  select(trad_date, price, product) %>% 
+  pivot_wider(names_from = product, values_from = price) %>% 
+  arrange(trad_date) %>% 
+  add_row(trad_date = max(.$trad_date) + 1) %>% # sobota NA
+  add_row(trad_date = max(.$trad_date) + 1)     # nedele NA
+
+```
+
+## cbind a save do excelu
+
+```{r}
+
+# FUTURES
+append_to_excel(futu, paste0(path_out, "indexyPlyn_AKTUALNI.xlsx"), sheet = "EEX futures")
+
+# write.table(futu, "clipboard", sep = "\t", row.names = FALSE)
+
+```
+
+
+
